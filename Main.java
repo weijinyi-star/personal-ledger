@@ -45,11 +45,13 @@ public class Main {
                         Ledger.showSummary(records);
                     } else if ("3".equals(choice)) {
                         showAbout(config);
+                    } else if ("4".equals(choice)) {
+                        Ledger.browse(records, scanner);
                     } else if ("0".equals(choice)) {
                         System.out.println("程序已退出。");
                         break;
                     } else {
-                        System.out.println("菜单输入无效，请输入 0、1、2 或 3。");
+                        System.out.println("菜单输入无效，请输入 0、1、2、3 或 4。");
                     }
                 }
             }
@@ -64,6 +66,7 @@ public class Main {
         System.out.println("1. 导入 CSV");
         System.out.println("2. 收支总览");
         System.out.println("3. 关于");
+        System.out.println("4. 按日期浏览");
         System.out.println("0. 退出");
         System.out.print("请输入菜单编号：");
     }
@@ -72,6 +75,7 @@ public class Main {
         System.out.println("程序名称：个人记账本（控制台版）");
         System.out.println("学号：" + config.getProperty("student.id", ""));
         System.out.println("本人水印：" + config.getProperty("student.watermark", ""));
+        System.out.println("当前进度：第 3 阶段（增加日期排序和分页浏览）");
     }
 
     private static Properties readConfig(Path configPath) throws IOException {

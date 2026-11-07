@@ -115,7 +115,6 @@ public class CsvCleaner {
         return null;
     }
 
-    // 合法日期返回 LocalDate；格式不对或日期不存在时返回 null。
     public static LocalDate parseDate(String text) {
         String format;
         if (text.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}")) {
