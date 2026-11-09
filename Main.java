@@ -3,6 +3,7 @@ package cleaner;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,35 +12,45 @@ import java.util.Properties;
 import java.util.Scanner;
 
 public class Main {
+    private static String weatherCity = "";
+    private static String weatherMessage = "";
+
     public static void main(String[] args) {
         try {
+            if (System.console() == null) {
+                System.setOut(new PrintStream(System.out, true, "UTF-8"));
+            }
             Path configPath = Paths.get("out", "config.properties");
             Properties config = readConfig(configPath);
             Path input = configPath.getParent().resolve(readRequired(config, "input.path"));
             Path output = configPath.getParent().resolve(readRequired(config, "output.dir"))
                     .resolve("cleaned.csv");
             Path storage = configPath.getParent().resolve(readRequired(config, "storage.path"));
-            checkPaths(new Path[] {configPath, input, output, storage});
+            Path reportPath = configPath.getParent().resolve(readRequired(config, "report.path"));
+            checkPaths(new Path[] {configPath, input, output, storage, reportPath});
             Ledger.checkBudgetConfig(config);
-            String[][] records = CsvCleaner.loadSaved(storage);
-            if (records.length > 0) {
-                Ledger.showMonthlyReport(records, config);
-            }
+            String[][] records = new String[0][];
+            boolean savedLoaded = false;
 
             try (Scanner scanner = createScanner()) {
                 while (true) {
                     showMenu();
                     if (!scanner.hasNextLine()) {
                         System.out.println("输入结束，尝试保存账单。");
-                        saveBeforeExit(storage, records);
+                        saveBeforeExit(storage, records, savedLoaded);
                         break;
                     }
                     String choice = scanner.nextLine().trim();
                     if ("1".equals(choice)) {
                         try {
-                            records = CsvCleaner.importCsv(input, output, records);
+                            String[][] saved = new String[0][];
+                            if (!savedLoaded) {
+                                saved = CsvCleaner.loadSaved(storage);
+                            }
+                            records = CsvCleaner.importCsv(input, output, records, saved);
+                            savedLoaded = true;
                             Ledger.showSummary(records);
-                            Ledger.showMonthlyReport(records, config);
+                            Ledger.showBudgetWarnings(records, config);
                         } catch (IOException | IllegalArgumentException ex) {
                             System.out.println("导入失败，当前账单未替换：" + ex.getMessage());
                         }
@@ -50,19 +61,33 @@ public class Main {
                     } else if ("4".equals(choice)) {
                         Ledger.browse(records, scanner);
                     } else if ("5".equals(choice)) {
+                        int previousCount = records.length;
                         records = Ledger.addManually(records, scanner);
                         Ledger.showMonthlyReport(records, config);
+                        if (records.length > previousCount) {
+                            showWeather(config, false);
+                        }
                     } else if ("6".equals(choice)) {
                         config = changeBudget(records, config, configPath, scanner);
                         Ledger.showMonthlyReport(records, config);
                     } else if ("7".equals(choice)) {
                         Ledger.showMonthlyReport(records, config);
+                    } else if ("8".equals(choice)) {
+                        try {
+                            String[][] report = Ledger.buildMonthlyReport(records, config);
+                            CsvCleaner.exportReport(reportPath, report);
+                            System.out.println("月报已导出：" + reportPath + "，共 " + report.length + " 行");
+                        } catch (IOException ex) {
+                            System.out.println("月报导出失败：" + ex.getMessage());
+                        }
+                    } else if ("9".equals(choice)) {
+                        showWeather(config, true);
                     } else if ("0".equals(choice)) {
-                        if (saveBeforeExit(storage, records)) {
+                        if (saveBeforeExit(storage, records, savedLoaded)) {
                             break;
                         }
                     } else {
-                        System.out.println("菜单输入无效，请输入 0～7 中的一个编号。");
+                        System.out.println("菜单输入无效，请输入 0～9 中的一个编号。");
                     }
                 }
             }
@@ -81,13 +106,15 @@ public class Main {
     private static void showMenu() {
         System.out.println();
         System.out.println("===== 个人记账本（控制台版） =====");
-        System.out.println("1. 导入 CSV（与已有账单合并）");
+        System.out.println("1. 导入 CSV（与当前账单合并）");
         System.out.println("2. 收支总览");
         System.out.println("3. 关于");
         System.out.println("4. 按日期浏览");
         System.out.println("5. 手动记账");
         System.out.println("6. 类别月预算管理（查看、增加、修改、删除）");
         System.out.println("7. 月度分类支出与超支提醒");
+        System.out.println("8. 导出月度报表 CSV");
+        System.out.println("9. 查询或刷新天气");
         System.out.println("0. 保存并退出");
         System.out.print("请输入菜单编号：");
     }
@@ -96,11 +123,39 @@ public class Main {
         System.out.println("程序名称：个人记账本（控制台版）");
         System.out.println("学号：" + config.getProperty("student.id", ""));
         System.out.println("本人水印：" + config.getProperty("student.watermark", ""));
-        System.out.println("当前进度：第 7 阶段（自然月分类支出和超支提醒）");
     }
 
-    private static boolean saveBeforeExit(Path storage, String[][] records) {
+    private static void showWeather(Properties config, boolean refresh) {
+        String city = config.getProperty("weather.city", "").trim();
+        if (city.isEmpty()) {
+            System.out.println("未设置天气城市，请在配置文件中填写 weather.city；仍可继续记账。");
+            return;
+        }
+        if (refresh || !city.equals(weatherCity) || weatherMessage.isEmpty()) {
+            System.out.println("正在查询" + city + "天气，请稍候……");
+            weatherCity = city;
+            try {
+                weatherMessage = WeatherKit.now(city);
+            } catch (WeatherKit.ApiException ex) {
+                weatherMessage = "暂时无法获取天气：" + ex.getMessage()
+                        + "。仍可继续记账，稍后输入 9 重试。";
+            }
+        } else {
+            System.out.println("以下天气信息来自本次运行的上次查询，输入 9 可刷新。");
+        }
+        System.out.println("天气信息：" + weatherMessage);
+    }
+
+    private static boolean saveBeforeExit(Path storage, String[][] records, boolean savedLoaded) {
+        if (!savedLoaded && records.length == 0) {
+            System.out.println("程序已退出。");
+            return true;
+        }
         try {
+            if (!savedLoaded) {
+                String[][] saved = CsvCleaner.loadSaved(storage);
+                records = CsvCleaner.mergeRecords(saved, records);
+            }
             CsvCleaner.saveRecords(storage, records);
             System.out.println("已保存 " + records.length + " 条账单到：" + storage);
             System.out.println("程序已退出。");
@@ -132,7 +187,7 @@ public class Main {
         for (int i = 0; i < paths.length; i++) {
             for (int j = i + 1; j < paths.length; j++) {
                 if (sameFile(paths[i], paths[j])) {
-                    throw new IOException("配置、原始 CSV、清洗结果和保存文件必须使用不同路径："
+                    throw new IOException("配置、原始 CSV、清洗结果、保存文件和月报必须使用不同路径："
                             + paths[i] + " 与 " + paths[j]);
                 }
             }
@@ -162,7 +217,7 @@ public class Main {
                 System.out.println("已取消预算修改，返回菜单。");
                 return config;
             }
-            if (CsvCleaner.checkField(4, category) == null) {
+            if (CsvCleaner.checkField(CsvCleaner.CATEGORY, category) == null) {
                 break;
             }
             System.out.println("类别必须是纯汉字，请重新输入。");
@@ -223,7 +278,7 @@ public class Main {
                 System.out.println("已取消预算修改，返回菜单。");
                 return config;
             }
-            String error = CsvCleaner.checkField(5, amount);
+            String error = CsvCleaner.checkField(CsvCleaner.AMOUNT, amount);
             if (error == null) {
                 break;
             }

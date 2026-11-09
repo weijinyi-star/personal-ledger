@@ -8,6 +8,12 @@ import java.util.Properties;
 
 public class Ledger {
     private static final int PAGE_SIZE = 10;
+    private static final int MONEY_SCALE = 2;
+    private static final int REPORT_MONTH = 0;
+    private static final int REPORT_CATEGORY = 1;
+    private static final int REPORT_EXPENSE = 2;
+    private static final int REPORT_BUDGET = 3;
+    private static final int REPORT_OVER = 4;
 
     public static void showSummary(String[][] records) {
         if (records.length == 0) {
@@ -18,8 +24,8 @@ public class Ledger {
         BigDecimal income = new BigDecimal("0.00");
         BigDecimal expense = new BigDecimal("0.00");
         for (int i = 0; i < records.length; i++) {
-            BigDecimal amount = new BigDecimal(records[i][5]);
-            if ("收入".equals(records[i][3])) {
+            BigDecimal amount = new BigDecimal(records[i][CsvCleaner.AMOUNT]);
+            if ("收入".equals(records[i][CsvCleaner.TYPE])) {
                 income = income.add(amount);
             } else {
                 expense = expense.add(amount);
@@ -90,8 +96,8 @@ public class Ledger {
 
         for (int i = 0; i < sorted.length - 1; i++) {
             for (int j = 0; j < sorted.length - 1 - i; j++) {
-                LocalDate first = CsvCleaner.parseDate(sorted[j][1]);
-                LocalDate second = CsvCleaner.parseDate(sorted[j + 1][1]);
+                LocalDate first = CsvCleaner.parseDate(sorted[j][CsvCleaner.DATE]);
+                LocalDate second = CsvCleaner.parseDate(sorted[j + 1][CsvCleaner.DATE]);
                 if (first.isAfter(second)) {
                     String[] temp = sorted[j];
                     sorted[j] = sorted[j + 1];
@@ -108,7 +114,7 @@ public class Ledger {
                 "类型（收入/支出）", "类别（纯汉字）", "金额（非负，最多两位小数）",
                 "备注（可直接回车，不能含半角逗号）", "是否固定支出（Y/N）"
         };
-        String[] fields = new String[8];
+        String[] fields = new String[CsvCleaner.FIELD_COUNT];
         System.out.println("请输入一笔账单；任意一步输入 q 或 :q 可取消并返回菜单。");
         for (int i = 0; i < fields.length; i++) {
             while (true) {
@@ -152,11 +158,11 @@ public class Ledger {
         }
         String[] names = categories.split(",", -1);
         for (int i = 0; i < names.length; i++) {
-            if (CsvCleaner.checkField(4, names[i]) != null) {
+            if (CsvCleaner.checkField(CsvCleaner.CATEGORY, names[i]) != null) {
                 throw new IllegalArgumentException("budget.categories 中的类别必须为纯汉字。");
             }
             String amount = config.getProperty("budget." + names[i]);
-            if (amount != null && CsvCleaner.checkField(5, amount) != null) {
+            if (amount != null && CsvCleaner.checkField(CsvCleaner.AMOUNT, amount) != null) {
                 throw new IllegalArgumentException("类别预算不合法：" + names[i]);
             }
         }
@@ -172,7 +178,7 @@ public class Ledger {
         if (!hasBudget(config, category)) {
             return null;
         }
-        return new BigDecimal(config.getProperty("budget." + category)).setScale(2);
+        return new BigDecimal(config.getProperty("budget." + category)).setScale(MONEY_SCALE);
     }
 
     public static String[] getBudgetCategories(String[][] records, Properties config) {
@@ -186,8 +192,8 @@ public class Ledger {
             }
         }
         for (int i = 0; i < records.length; i++) {
-            String category = records[i][4];
-            if ("支出".equals(records[i][3]) && !contains(names, count, category)) {
+            String category = records[i][CsvCleaner.CATEGORY];
+            if ("支出".equals(records[i][CsvCleaner.TYPE]) && !contains(names, count, category)) {
                 names[count] = category;
                 count++;
             }
@@ -228,14 +234,14 @@ public class Ledger {
         String[][] groups = new String[records.length][];
         int count = 0;
         for (int i = 0; i < records.length; i++) {
-            if (!"支出".equals(records[i][3])) {
+            if (!"支出".equals(records[i][CsvCleaner.TYPE])) {
                 continue;
             }
-            String month = YearMonth.from(CsvCleaner.parseDate(records[i][1])).toString();
-            String category = records[i][4];
+            String month = YearMonth.from(CsvCleaner.parseDate(records[i][CsvCleaner.DATE])).toString();
+            String category = records[i][CsvCleaner.CATEGORY];
             int index = -1;
             for (int j = 0; j < count; j++) {
-                if (month.equals(groups[j][0]) && category.equals(groups[j][1])) {
+                if (month.equals(groups[j][REPORT_MONTH]) && category.equals(groups[j][REPORT_CATEGORY])) {
                     index = j;
                     break;
                 }
@@ -245,27 +251,27 @@ public class Ledger {
                 groups[count] = new String[] {month, category, "0.00", "未设置", "未判断"};
                 count++;
             }
-            BigDecimal total = new BigDecimal(groups[index][2]);
-            groups[index][2] = total.add(new BigDecimal(records[i][5])).toPlainString();
+            BigDecimal total = new BigDecimal(groups[index][REPORT_EXPENSE]);
+            groups[index][REPORT_EXPENSE] = total.add(new BigDecimal(records[i][CsvCleaner.AMOUNT])).toPlainString();
         }
 
         String[][] report = new String[count][];
         for (int i = 0; i < count; i++) {
             report[i] = groups[i];
-            BigDecimal budget = getBudget(config, report[i][1]);
+            BigDecimal budget = getBudget(config, report[i][REPORT_CATEGORY]);
             if (budget != null) {
-                report[i][3] = budget.toPlainString();
-                report[i][4] = "否";
-                if (new BigDecimal(report[i][2]).compareTo(budget) > 0) {
-                    report[i][4] = "是";
+                report[i][REPORT_BUDGET] = budget.toPlainString();
+                report[i][REPORT_OVER] = "否";
+                if (new BigDecimal(report[i][REPORT_EXPENSE]).compareTo(budget) > 0) {
+                    report[i][REPORT_OVER] = "是";
                 }
             }
         }
         for (int i = 0; i < report.length - 1; i++) {
             for (int j = 0; j < report.length - 1 - i; j++) {
-                int monthOrder = report[j][0].compareTo(report[j + 1][0]);
+                int monthOrder = report[j][REPORT_MONTH].compareTo(report[j + 1][REPORT_MONTH]);
                 if (monthOrder > 0 || (monthOrder == 0
-                        && report[j][1].compareTo(report[j + 1][1]) > 0)) {
+                        && report[j][REPORT_CATEGORY].compareTo(report[j + 1][REPORT_CATEGORY]) > 0)) {
                     String[] temp = report[j];
                     report[j] = report[j + 1];
                     report[j + 1] = temp;
@@ -284,15 +290,26 @@ public class Ledger {
         System.out.println("月份 | 类别 | 支出金额 | 预算 | 是否超支");
         for (int i = 0; i < report.length; i++) {
             System.out.println(String.join(" | ", report[i]));
-            if (!hasBudget(config, report[i][1])) {
-                System.out.println("提示：" + report[i][1]
+            if (!hasBudget(config, report[i][REPORT_CATEGORY])) {
+                System.out.println("提示：" + report[i][REPORT_CATEGORY]
                         + "没有设置预算，暂不判断是否超支，可在菜单 6 选择是否添加。");
             }
-            if ("是".equals(report[i][4])) {
-                BigDecimal excess = new BigDecimal(report[i][2]).subtract(new BigDecimal(report[i][3]));
-                System.out.println("!!! 超支警告：" + report[i][0] + " " + report[i][1]
-                        + " 超出预算 " + excess.toPlainString() + " 元 !!!");
-            }
+            showBudgetWarning(report[i]);
+        }
+    }
+
+    public static void showBudgetWarnings(String[][] records, Properties config) {
+        String[][] report = buildMonthlyReport(records, config);
+        for (int i = 0; i < report.length; i++) {
+            showBudgetWarning(report[i]);
+        }
+    }
+
+    private static void showBudgetWarning(String[] row) {
+        if ("是".equals(row[REPORT_OVER])) {
+            BigDecimal excess = new BigDecimal(row[REPORT_EXPENSE]).subtract(new BigDecimal(row[REPORT_BUDGET]));
+            System.out.println("!!! 超支警告：" + row[REPORT_MONTH] + " " + row[REPORT_CATEGORY]
+                    + " 超出预算 " + excess.toPlainString() + " 元 !!!");
         }
     }
 }
