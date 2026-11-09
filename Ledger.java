@@ -2,6 +2,7 @@ package cleaner;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.Scanner;
 import java.util.Properties;
 
@@ -219,6 +220,78 @@ public class Ledger {
                 System.out.println(categories[i] + "：没有设置预算");
             } else {
                 System.out.println(categories[i] + "：" + budget.toPlainString() + " 元/月");
+            }
+        }
+    }
+
+    public static String[][] buildMonthlyReport(String[][] records, Properties config) {
+        String[][] groups = new String[records.length][];
+        int count = 0;
+        for (int i = 0; i < records.length; i++) {
+            if (!"支出".equals(records[i][3])) {
+                continue;
+            }
+            String month = YearMonth.from(CsvCleaner.parseDate(records[i][1])).toString();
+            String category = records[i][4];
+            int index = -1;
+            for (int j = 0; j < count; j++) {
+                if (month.equals(groups[j][0]) && category.equals(groups[j][1])) {
+                    index = j;
+                    break;
+                }
+            }
+            if (index == -1) {
+                index = count;
+                groups[count] = new String[] {month, category, "0.00", "未设置", "未判断"};
+                count++;
+            }
+            BigDecimal total = new BigDecimal(groups[index][2]);
+            groups[index][2] = total.add(new BigDecimal(records[i][5])).toPlainString();
+        }
+
+        String[][] report = new String[count][];
+        for (int i = 0; i < count; i++) {
+            report[i] = groups[i];
+            BigDecimal budget = getBudget(config, report[i][1]);
+            if (budget != null) {
+                report[i][3] = budget.toPlainString();
+                report[i][4] = "否";
+                if (new BigDecimal(report[i][2]).compareTo(budget) > 0) {
+                    report[i][4] = "是";
+                }
+            }
+        }
+        for (int i = 0; i < report.length - 1; i++) {
+            for (int j = 0; j < report.length - 1 - i; j++) {
+                int monthOrder = report[j][0].compareTo(report[j + 1][0]);
+                if (monthOrder > 0 || (monthOrder == 0
+                        && report[j][1].compareTo(report[j + 1][1]) > 0)) {
+                    String[] temp = report[j];
+                    report[j] = report[j + 1];
+                    report[j + 1] = temp;
+                }
+            }
+        }
+        return report;
+    }
+
+    public static void showMonthlyReport(String[][] records, Properties config) {
+        String[][] report = buildMonthlyReport(records, config);
+        if (report.length == 0) {
+            System.out.println("当前没有支出记录，暂无月度分类支出。");
+            return;
+        }
+        System.out.println("月份 | 类别 | 支出金额 | 预算 | 是否超支");
+        for (int i = 0; i < report.length; i++) {
+            System.out.println(String.join(" | ", report[i]));
+            if (!hasBudget(config, report[i][1])) {
+                System.out.println("提示：" + report[i][1]
+                        + "没有设置预算，暂不判断是否超支，可在菜单 6 选择是否添加。");
+            }
+            if ("是".equals(report[i][4])) {
+                BigDecimal excess = new BigDecimal(report[i][2]).subtract(new BigDecimal(report[i][3]));
+                System.out.println("!!! 超支警告：" + report[i][0] + " " + report[i][1]
+                        + " 超出预算 " + excess.toPlainString() + " 元 !!!");
             }
         }
     }

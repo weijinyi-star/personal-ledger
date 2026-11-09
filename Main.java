@@ -22,6 +22,9 @@ public class Main {
             checkPaths(new Path[] {configPath, input, output, storage});
             Ledger.checkBudgetConfig(config);
             String[][] records = CsvCleaner.loadSaved(storage);
+            if (records.length > 0) {
+                Ledger.showMonthlyReport(records, config);
+            }
 
             try (Scanner scanner = createScanner()) {
                 while (true) {
@@ -36,6 +39,7 @@ public class Main {
                         try {
                             records = CsvCleaner.importCsv(input, output, records);
                             Ledger.showSummary(records);
+                            Ledger.showMonthlyReport(records, config);
                         } catch (IOException | IllegalArgumentException ex) {
                             System.out.println("导入失败，当前账单未替换：" + ex.getMessage());
                         }
@@ -47,14 +51,18 @@ public class Main {
                         Ledger.browse(records, scanner);
                     } else if ("5".equals(choice)) {
                         records = Ledger.addManually(records, scanner);
+                        Ledger.showMonthlyReport(records, config);
                     } else if ("6".equals(choice)) {
                         config = changeBudget(records, config, configPath, scanner);
+                        Ledger.showMonthlyReport(records, config);
+                    } else if ("7".equals(choice)) {
+                        Ledger.showMonthlyReport(records, config);
                     } else if ("0".equals(choice)) {
                         if (saveBeforeExit(storage, records)) {
                             break;
                         }
                     } else {
-                        System.out.println("菜单输入无效，请输入 0～6 中的一个编号。");
+                        System.out.println("菜单输入无效，请输入 0～7 中的一个编号。");
                     }
                 }
             }
@@ -79,6 +87,7 @@ public class Main {
         System.out.println("4. 按日期浏览");
         System.out.println("5. 手动记账");
         System.out.println("6. 类别月预算管理（查看、增加、修改、删除）");
+        System.out.println("7. 月度分类支出与超支提醒");
         System.out.println("0. 保存并退出");
         System.out.print("请输入菜单编号：");
     }
@@ -87,7 +96,7 @@ public class Main {
         System.out.println("程序名称：个人记账本（控制台版）");
         System.out.println("学号：" + config.getProperty("student.id", ""));
         System.out.println("本人水印：" + config.getProperty("student.watermark", ""));
-        System.out.println("当前进度：第 6 阶段（类别月预算配置）");
+        System.out.println("当前进度：第 7 阶段（自然月分类支出和超支提醒）");
     }
 
     private static boolean saveBeforeExit(Path storage, String[][] records) {
